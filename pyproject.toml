@@ -1,0 +1,16 @@
+[project]
+name = "groq-agno"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "agno>=1.7.0",
+    "dotenv>=0.9.9",
+    "groq>=0.29.0",
+    "matplotlib>=3.10.3",
+    "mdv>=1.7.5",
+    "plotext>=5.3.2",
+    "rich>=14.0.0",
+    "yfinance>=0.2.64",
+]
