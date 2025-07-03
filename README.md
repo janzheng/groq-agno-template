@@ -24,10 +24,12 @@ This template showcases how to build production-ready AI agents using Groq API a
 
 **Key Features:**
 - 🤖 Simple chat agent setup with Groq integration
+- 🌐 **Web Search Integration** with Groq's compound-beta model for real-time information
 - 📊 Advanced multi-tool agent with YFinance integration
 - 🎨 Rich terminal UI with charts and visualizations
 - 💬 Persistent conversation context and memory
 - 📈 Real-time stock analysis and comparison tools
+- 🔍 Live web search with source attribution and current data
 - Sub-second response times, efficient concurrent request handling, and production-grade performance powered by Groq
 
 ## Architecture
@@ -35,6 +37,7 @@ This template showcases how to build production-ready AI agents using Groq API a
 **Tech Stack:**
 - **AI Framework:** Agno for agent orchestration and tool management
 - **AI Infrastructure:** Groq API for ultra-fast LLM inference
+- **Web Search:** Groq's compound-beta model for real-time web information
 - **Data Sources:** YFinance for real-time financial data
 - **Visualization:** Rich, Plotext, and Matplotlib for charts and tables
 - **CLI Interface:** Rich console with beautiful markdown rendering
@@ -127,17 +130,20 @@ agent.print_response("Share a 2 sentence horror story.")
 The advanced example includes:
 - **Natural Language Processing**: Parse user requests like "analyze apple stock" or "compare tesla vs ford"
 - **Real-Time Data**: Fetch live stock prices, analyst recommendations, company news
+- **Web Search Integration**: Get latest information using Groq's compound-beta model
 - **Rich Visualizations**: Terminal charts, comparison tables, and performance metrics
 - **Conversation Memory**: Maintain context across multiple interactions
 - **Multiple Chart Types**: ASCII, terminal plots, and matplotlib exports
 
 **Key Features:**
 - 🗣️ Natural language commands ("analyze apple over 6 months")
+- 🌐 **Real-time web search** ("what's zuckerberg doing with ai recently?")
 - 📊 Multiple visualization options (terminal charts, PNG exports)
 - 💬 Persistent chat context and conversation memory
 - 📈 Historical performance analysis (1d/5d/1m/6m/ytd/1y)
 - ⚖️ Side-by-side stock comparisons
-- 🎯 Market sentiment analysis
+- 🎯 Market sentiment analysis with web insights
+- 🔗 Source attribution and current information
 
 ## Agent Capabilities
 
@@ -148,6 +154,7 @@ The advanced example includes:
 
 ### Advanced Agent Tools
 - **YFinance Integration**: Real-time stock data, company info, analyst recommendations
+- **Web Search (compound-beta)**: Live web search with Groq's compound-beta model for current information
 - **Chart Generation**: Terminal plots, matplotlib charts, ASCII fallbacks
 - **Natural Language Parsing**: Convert user requests to structured commands
 - **Context Management**: Remember previous analyses and conversations
@@ -166,6 +173,13 @@ uv run python stocks.py
 "how is the market doing today?"
 "tell me about nvidia's recent performance"
 "what's the best performing tech stock?"
+
+# NEW: Web search capabilities with compound-beta
+"what's zuckerberg doing with ai recently?"
+"search for tesla's latest innovations"
+"recent ai developments at microsoft"
+"find information about nvidia's partnerships"
+"what's happening with openai lately?"
 ```
 
 ### Menu-Driven Interface
@@ -173,8 +187,9 @@ The stocks agent also supports traditional menu navigation:
 1. Analyze Custom Stocks
 2. Compare Stocks
 3. Market Sentiment Analysis
-4. Show Session Info
-5. Exit
+4. **Web Search for Stock Info** (NEW: powered by compound-beta)
+5. Show Session Info
+6. Exit
 
 ## Customization
 This template is designed to be a foundation for you to get started with. Key areas for customization:
@@ -215,6 +230,48 @@ The template supports multiple visualization libraries:
 - **Matplotlib**: High-quality PNG chart exports
 - **MDV**: Enhanced markdown rendering
 
+## Web Search Integration
+
+### Groq's Compound-Beta Model
+This template features cutting-edge web search capabilities powered by Groq's **compound-beta** model - an experimental model that can search the web in real-time and return comprehensive results with source attribution.
+
+**Key Web Search Features:**
+- 🌐 **Real-time Information**: Get the latest news, developments, and insights
+- 🔗 **Source Attribution**: All results include clickable source URLs
+- 📡 **Raw Output**: Direct access to compound-beta's unprocessed search results
+- 🎯 **Adaptive Focus**: Automatically adjusts search strategy based on your query
+- ⚡ **Lightning Fast**: Powered by Groq's ultra-fast inference infrastructure
+
+**Example Web Searches:**
+```bash
+# AI and Technology Developments
+"what's zuckerberg doing with ai recently?"
+"latest developments in nvidia's ai chips"
+"recent partnerships between tech companies"
+
+# Business Strategy and Innovations
+"tesla's latest product announcements"
+"microsoft's recent ai acquisitions"
+"google's new ai research initiatives"
+
+# Market and Industry Analysis
+"recent changes in ai industry landscape"
+"latest regulatory developments in tech"
+"emerging trends in artificial intelligence"
+```
+
+**How It Works:**
+1. **Direct Query Processing**: Your question goes directly to compound-beta
+2. **Real-time Web Search**: The model searches current web sources
+3. **Source Compilation**: Results include URLs, dates, and attribution
+4. **Raw Output Display**: See exactly what compound-beta found
+
+**Integration with Stock Analysis:**
+- All stock analyses now include web-enhanced insights
+- Market sentiment analysis incorporates latest web intelligence
+- Company analysis includes recent news and developments
+- Comparison reports feature current market context
+
 ## Advanced Features
 
 ### Conversation Context
@@ -231,6 +288,7 @@ chat_context = {
 ### Multi-Agent Architecture
 The stocks example uses specialized agents:
 - **Reasoning Agent**: Comprehensive stock analysis
+- **Web Search Agent**: Real-time information gathering with compound-beta
 - **NLP Agent**: Natural language command parsing
 - **Chat Agent**: Conversational responses with context
 
@@ -240,6 +298,8 @@ All financial data comes from live sources:
 - Analyst recommendations and price targets
 - Company news and earnings data
 - Historical performance metrics
+- **Web search results** from compound-beta for latest developments
+- **Source-attributed information** with clickable links and publication dates
 
 ## Troubleshooting
 

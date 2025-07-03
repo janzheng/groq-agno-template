@@ -80,6 +80,35 @@ chat_context = {
     "total_queries": 0
 }
 
+# Web Search Agent using compound-beta model for enhanced analysis
+web_agent = Agent(
+    name="Web Search Agent",
+    role="Search the web for information",
+    model=Groq(id="compound-beta"),
+    instructions="""You are a web search specialist using Groq's compound-beta model. Provide the most recent and accurate information available from your web search capabilities.
+
+🔍 **SEARCH INSTRUCTIONS:**
+- Search for the most recent and relevant information
+- Focus on the user's specific query without over-processing
+- Provide direct, factual information from your search results
+- Include all relevant sources and links you find
+
+📋 **OUTPUT FORMAT:**
+- Present information clearly and directly
+- Include all source URLs and publication dates you find
+- Use markdown formatting for readability
+- Don't over-structure the response - let the search results speak for themselves
+
+🎯 **PRIORITY:**
+- Accuracy and recency of information
+- Comprehensive source attribution
+- Direct relevance to the user's question
+
+Search and provide the most current information available.""",
+    markdown=True,
+    show_tool_calls=False,
+)
+
 reasoning_agent = Agent(
     model=Groq(id=DEFAULT_MODEL_ID),
     tools=[
@@ -139,13 +168,14 @@ nlp_agent = Agent(
     model=Groq(id=DEFAULT_MODEL_ID),
     instructions="""You are an expert command parser for a stock analysis tool. Your job is to understand natural language requests and convert them into structured commands.
 
-🎯 **CORE MISSION**: Detect when users want stock analysis, even if they use casual language.
+🎯 **CORE MISSION**: Intelligently detect user intent - stock analysis, web search, or general chat.
 
 📊 **AVAILABLE COMMANDS**:
 1. **"analyze"** - Analyze individual stocks (when specific stocks mentioned)
 2. **"compare"** - Compare multiple stocks (when multiple stocks mentioned)  
 3. **"market"** - Market sentiment analysis (when asking about overall market)
-4. **"chat"** - General conversation (when no specific stocks mentioned)
+4. **"search"** - Web search for information (when asking for news, research, recent developments, or current events)
+5. **"chat"** - General conversation (when no specific stocks mentioned and no search intent)
 
 🔍 **STOCK DETECTION RULES** (BE VERY AGGRESSIVE):
 - **ALWAYS look for stock symbols or company names** in the user's request
@@ -155,15 +185,30 @@ nlp_agent = Agent(
 - **Include ETFs and indices** (SPY, QQQ, DIA, VTI, etc.)
 - **Include all sectors** (tech, biotech, finance, energy, etc.)
 
+🔍 **SEARCH DETECTION RULES** (BE AGGRESSIVE):
+- **Information-seeking keywords**: "what's", "what is", "how is", "tell me about", "find", "search", "look up"
+- **Temporal keywords**: "latest", "recent", "recently", "current", "new", "today", "now", "happening"
+- **News/research keywords**: "news", "updates", "developments", "research", "reports", "announcements"
+- **Company activities**: "doing", "working on", "building", "developing", "launching", "planning"
+- **Questions about people**: "what's [person] doing", "how is [person]", especially CEOs like "zuckerberg", "musk", "cook"
+- **Technology trends**: "ai", "artificial intelligence", "machine learning", "blockchain", "crypto"
+- **Business activities**: "partnerships", "acquisitions", "earnings", "revenue", "growth"
+
 🚨 **CRITICAL PARSING EXAMPLES**:
 - "how is apple doing" → {"command": "analyze", "stocks": ["AAPL"], "intent": "analyze Apple performance", "time_periods": []}
 - "compare tesla and ford" → {"command": "compare", "stocks": ["TSLA", "F"], "intent": "compare Tesla vs Ford", "time_periods": []}
+- "what's the latest news on nvidia" → {"command": "search", "stocks": ["NVDA"], "intent": "search for NVIDIA news", "time_periods": []}
+- "what's zuckerberg doing with ai recently" → {"command": "search", "stocks": ["META"], "intent": "search for Zuckerberg/Meta AI developments", "time_periods": []}
+- "what's happening with openai lately" → {"command": "search", "stocks": [], "intent": "search for OpenAI developments", "time_periods": []}
+- "recent ai developments at microsoft" → {"command": "search", "stocks": ["MSFT"], "intent": "search for Microsoft AI developments", "time_periods": []}
 - "what's the market doing" → {"command": "market", "stocks": [], "intent": "market sentiment analysis", "time_periods": []}
+- "should I buy tesla now" → {"command": "chat", "stocks": ["TSLA"], "intent": "chat about Tesla investment advice", "time_periods": []}
 
 📋 **COMPANY NAME TO TICKER MAPPING**:
 Use your knowledge of company names and ticker symbols. Common patterns:
 - Company names → ticker symbols (Apple→AAPL, Tesla→TSLA, etc.)
 - Handle variations (Meta/Facebook→META, Google/Alphabet→GOOGL, etc.)
+- CEO names → company tickers (Zuckerberg→META, Musk→TSLA, Cook→AAPL, Nadella→MSFT, Pichai→GOOGL)
 - Include ETFs and indices (S&P 500→SPY, Nasdaq→QQQ, etc.)
 
 ⏰ **TIME PERIOD DETECTION**:
@@ -176,17 +221,23 @@ Use your knowledge of company names and ticker symbols. Common patterns:
 
 🎯 **OUTPUT FORMAT** (JSON only):
 {
-    "command": "analyze|compare|market|chat",
+    "command": "analyze|compare|market|search|chat",
     "stocks": ["SYMBOL1", "SYMBOL2"],
     "intent": "clear description of request",
     "time_periods": ["1y", "6m", etc.]
 }
 
+**DECISION PRIORITY**:
+1. **SEARCH FIRST**: If query has search keywords (what's, latest, recent, news, developments, etc.) → use "search"
+2. **STOCK ANALYSIS**: If specific stocks mentioned → use "analyze" or "compare"  
+3. **MARKET**: If asking about overall market → use "market"
+4. **CHAT LAST**: Only use "chat" for conversational questions without search intent
+
 **REMEMBER**: 
-- Be VERY aggressive in detecting stock symbols! 
-- If someone mentions "stock" they probably want stock analysis!
-- ANY 2-5 letter combination could be a ticker symbol!
-- When in doubt, treat as "analyze" rather than "chat"!""",
+- Be AGGRESSIVE in detecting search intent! 
+- Questions starting with "what's", "what is", "how is" often need web search!
+- CEO names and company activities usually need current information → "search"!
+- When in doubt between "search" and "chat", choose "search"!""",
     markdown=False,
     show_tool_calls=False,
 )
@@ -378,30 +429,34 @@ def parse_natural_language(user_input):
 
 {context_for_parsing}
 
-🔍 **YOUR TASK**: Analyze this request and determine what the user wants to do with stocks.
+🔍 **YOUR TASK**: Analyze this request and determine what the user wants to do.
 
 🚨 **KEY DETECTION POINTS** (BE AGGRESSIVE):
-- Look for ANY stock symbols (SPY, AAPL, TSLA, ARMP, etc.) - even if lowercase
-- Look for company names (Apple, Tesla, Microsoft, Armata, etc.)
-- Look for the word "stock" - this almost always means they want stock analysis
-- Look for chart/graph requests ("show", "chart", "graph", "plot")
-- Look for time periods ("year", "month", "6m", "ytd", "from last", etc.)
-- Look for comparison words ("vs", "compare", "against")
+- **SEARCH INTENT**: Look for "what's", "what is", "how is", "latest", "recent", "news", "developments", "doing", "happening"
+- **STOCK SYMBOLS**: Look for ANY stock symbols (SPY, AAPL, TSLA, ARMP, etc.) - even if lowercase
+- **COMPANY NAMES**: Look for company names (Apple, Tesla, Microsoft, Meta, etc.)
+- **CEO NAMES**: Look for CEO names (Zuckerberg→META, Musk→TSLA, Cook→AAPL, etc.)
+- **STOCK ANALYSIS**: Look for the word "stock", chart/graph requests ("show", "chart", "graph", "plot")
+- **TIME PERIODS**: Look for time periods ("year", "month", "6m", "ytd", "from last", etc.)
+- **COMPARISON**: Look for comparison words ("vs", "compare", "against")
 
-📊 **DECISION LOGIC**:
-- If you see the word "stock" OR any potential stock symbols → use "analyze" or "compare"
-- If you see specific stock symbols/companies → use "analyze" or "compare"
-- If you see words like "market", "overall", "sentiment" → use "market"
-- If no specific stocks mentioned AND no word "stock" → use "chat"
+📊 **DECISION LOGIC** (PRIORITY ORDER):
+1. **SEARCH FIRST**: If you see search keywords (what's, latest, recent, news, developments, doing, happening) → use "search"
+2. **STOCK ANALYSIS**: If you see specific stock symbols/companies → use "analyze" or "compare"
+3. **MARKET**: If you see words like "market", "overall", "sentiment" → use "market"
+4. **CHAT LAST**: Only if no search intent and no specific stocks → use "chat"
 
 🎯 **EXAMPLES FOR THIS REQUEST**:
+- "what's zuckerberg doing with ai recently" → {{"command": "search", "stocks": ["META"], "intent": "search for Zuckerberg/Meta AI developments", "time_periods": []}}
 - "how is apple doing" → {{"command": "analyze", "stocks": ["AAPL"], "intent": "analyze Apple performance", "time_periods": []}}
 - "compare tesla vs ford" → {{"command": "compare", "stocks": ["TSLA", "F"], "intent": "compare Tesla vs Ford", "time_periods": []}}
+- "latest news on nvidia" → {{"command": "search", "stocks": ["NVDA"], "intent": "search for NVIDIA news", "time_periods": []}}
+- "what's happening with openai" → {{"command": "search", "stocks": [], "intent": "search for OpenAI developments", "time_periods": []}}
 
 ⚡ **RESPOND WITH JSON ONLY** - no explanations, just the JSON structure:
-{{"command": "analyze|compare|market|chat", "stocks": ["SYMBOLS"], "intent": "description", "time_periods": ["periods"]}}
+{{"command": "analyze|compare|market|search|chat", "stocks": ["SYMBOLS"], "intent": "description", "time_periods": ["periods"]}}
 
-🚨 **CRITICAL**: The user said '{user_input}' - look for ANY potential stock symbols in this text, even if they're lowercase or mixed case!"""
+🚨 **CRITICAL**: The user said '{user_input}' - prioritize SEARCH if this looks like an information-seeking question!"""
     
     if HAS_RICH:
         with console.status("[bold blue]🧠 Understanding your request...") as status:
@@ -537,6 +592,8 @@ def execute_natural_command(parsed_command, user_input):
         result = market_sentiment_analysis()
     elif command == 'chat':
         result = handle_chat_request(user_input, stocks)
+    elif command == 'search':
+        result = handle_search_request(user_input, stocks)
     else:
         if HAS_RICH:
             console.print(f"[red]❌ Unknown command: {command}[/red]")
@@ -628,7 +685,10 @@ def analyze_specific_stocks(stocks, time_periods=None, ticker_lookup=None):
         company_name = lookup_info.get('company_name', 'Unknown')
         sector = lookup_info.get('sector', 'Unknown')
         
-        # Create enhanced prompt with ticker lookup context
+        # Get web search enhancement
+        web_insights = get_web_enhanced_analysis(stock, company_name, sector)
+        
+        # Create enhanced prompt with ticker lookup context and web insights
         enhanced_prompt = f"""🎯 **COMPREHENSIVE STOCK ANALYSIS REQUEST**
 
 You MUST use your YFinance tools to get REAL data for **{stock}**.
@@ -637,6 +697,9 @@ You MUST use your YFinance tools to get REAL data for **{stock}**.
 - Expected Company: {company_name}
 - Expected Sector: {sector}
 - This should help you verify you're getting data for the RIGHT company
+
+🌐 **WEB INSIGHTS** (latest information from web search):
+{web_insights if web_insights else "Web search data not available - proceed with YFinance tools only"}
 
 🚨 **CRITICAL DATA VERIFICATION**:
 - Double-check that the company name from your tools matches: "{company_name}"
@@ -656,17 +719,20 @@ You MUST use your YFinance tools to get REAL data for **{stock}**.
 - Recent company news (from company_news tool)
 
 🚨 **CRITICAL REQUIREMENTS:**
-- ONLY use data from your YFinance tools
+- ONLY use data from your YFinance tools for financial metrics
+- Incorporate web insights for context and recent developments
 - DO NOT make up any prices, percentages, or financial metrics
 - If a tool doesn't return data, say "Data not available" instead of inventing numbers
 - If you detect data for wrong company, clearly flag this as an error
 - Format real data beautifully with emojis and tables
+- Include sources from web insights when referencing external information
 
 🎨 **FORMATTING:**
 - Use emojis (📈 📉 💰 🏢 ⚡ 🎯)
 - Create tables with real data only
 - Use **bold** for company names and key metrics
 - Format real numbers with currency symbols and percentages
+- Include web sources with 🔗 when referencing external information
 
 REMEMBER: Expected company is "{company_name}" - verify this matches your tool results!"""
         
@@ -786,10 +852,25 @@ def compare_specific_stocks(stocks, time_periods=None, ticker_lookup=None):
             lookup_context += f"- {stock}: {company_name} ({sector})\n"
         lookup_context += "\nUse this to verify you're getting data for the RIGHT companies.\n"
     
+    # Get web insights for comparison enhancement
+    comparison_web_insights = []
+    for stock in stocks:
+        lookup_info = ticker_lookup.get(stock, {}) if ticker_lookup else {}
+        company_name = lookup_info.get('company_name', 'Unknown')
+        sector = lookup_info.get('sector', 'Unknown')
+        web_insight = get_web_enhanced_analysis(stock, company_name, sector)
+        if web_insight:
+            comparison_web_insights.append(f"**{stock}**: {web_insight[:300]}...")
+    
+    web_context = ""
+    if comparison_web_insights:
+        web_context = f"\n🌐 **WEB INSIGHTS FOR COMPARISON:**\n" + "\n\n".join(comparison_web_insights) + "\n"
+    
     enhanced_prompt = f"""🏆 **COMPREHENSIVE STOCK COMPARISON REQUEST**
 
 Compare **{', '.join(stocks)}** stocks with beautiful side-by-side analysis.
 {lookup_context}
+{web_context}
 📊 **COMPARISON DATA TO GATHER:**
 - Current prices, market caps, and trading volumes
 - Historical performance for periods: {', '.join(time_periods)}
@@ -806,12 +887,14 @@ Compare **{', '.join(stocks)}** stocks with beautiful side-by-side analysis.
 - Add summary scorecards for each stock
 - Include > blockquote recommendations
 - Use horizontal rules between major sections
+- Include web sources with 🔗 when referencing external information
 
 🎯 **ANALYSIS GOALS:**
 - Rank stocks by different criteria (growth, value, stability)
 - Identify the best investment opportunity and explain why
 - Highlight key risks and opportunities for each
 - Provide clear buy/hold/sell guidance
+- Incorporate latest web insights for comprehensive analysis
 
 Make this comparison visually stunning and actionable!"""
     
@@ -998,27 +1081,31 @@ def market_sentiment_analysis():
     if HAS_RICH:
         console.print("\n[bold magenta]📈 Market Sentiment Analysis[/bold magenta]")
         
-        with console.status("[bold green]Analyzing market sentiment...") as status:
+        # Get web insights for market analysis
+        market_web_search = """Search for the latest market sentiment and analysis:
+        
+        Focus on:
+        - Overall market trends and sentiment
+        - Federal Reserve policy and interest rate impacts
+        - Economic indicators (inflation, employment, GDP)
+        - Geopolitical events affecting markets
+        - Sector rotation and institutional flows
+        - Analyst market outlook and predictions
+        - Recent market volatility and catalysts
+        
+        Provide comprehensive market analysis with reliable sources."""
+        
+        with console.status("[bold green]Analyzing market sentiment with web insights...") as status:
+            # Get web insights first
+            web_insights = web_agent.run(market_web_search)
+            
             response = reasoning_agent.run(
-                "Analyze the current market sentiment by examining news and data for "
-                "major market indicators like SPY, QQQ, and DIA. Also look at key individual "
-                "stocks like AAPL, MSFT, GOOGL. Create tables showing recent performance "
-                "and news sentiment. Use reasoning to provide an overall market outlook."
-            )
-        
-        render_markdown_with_alternatives(
-            response.content,
-            title="📈 Market Sentiment Analysis",
-            border_style="magenta"
-        )
-    else:
-        print("\n📈 Market Sentiment Analysis")
-        print("=" * 50)
-        
-        response = reasoning_agent.run(
-            """📈 **COMPREHENSIVE MARKET SENTIMENT ANALYSIS**
+                f"""📈 **COMPREHENSIVE MARKET SENTIMENT ANALYSIS**
 
 Analyze current market sentiment with beautiful, detailed formatting.
+
+🌐 **LATEST WEB INSIGHTS:**
+{web_insights.content if hasattr(web_insights, 'content') else web_insights}
 
 📊 **MARKET DATA TO ANALYZE:**
 - Major indices: SPY, QQQ, DIA, VIX
@@ -1033,6 +1120,7 @@ Analyze current market sentiment with beautiful, detailed formatting.
 - Color indicators: 🟢 for bullish, 🔴 for bearish, 🟡 for neutral
 - Add horizontal rules between sections
 - Format percentages and dollar amounts clearly
+- Include web sources with 🔗 when referencing external information
 
 🎯 **ANALYSIS STRUCTURE:**
 1. **Market Overview** - Current state and trends
@@ -1042,8 +1130,72 @@ Analyze current market sentiment with beautiful, detailed formatting.
 5. **Sentiment Indicators** - VIX, news sentiment
 6. **Economic Factors** - Interest rates, inflation, etc.
 7. **Market Outlook** - Bullish/bearish forecast
+8. **Web Insights Summary** - Key findings from latest research
 
-> **Goal:** Provide clear, actionable market insights with stunning visual presentation!
+> **Goal:** Provide clear, actionable market insights with stunning visual presentation and latest web intelligence!
+                """
+            )
+        
+        render_markdown_with_alternatives(
+            response.content,
+            title="📈 Market Sentiment Analysis",
+            border_style="magenta"
+        )
+    else:
+        print("\n📈 Market Sentiment Analysis")
+        print("=" * 50)
+        
+        # Get web insights for market analysis
+        market_web_search = """Search for the latest market sentiment and analysis:
+        
+        Focus on:
+        - Overall market trends and sentiment
+        - Federal Reserve policy and interest rate impacts
+        - Economic indicators (inflation, employment, GDP)
+        - Geopolitical events affecting markets
+        - Sector rotation and institutional flows
+        - Analyst market outlook and predictions
+        - Recent market volatility and catalysts
+        
+        Provide comprehensive market analysis with reliable sources."""
+        
+        print("🌐 Gathering latest market insights...")
+        web_insights = web_agent.run(market_web_search)
+        
+        response = reasoning_agent.run(
+            f"""📈 **COMPREHENSIVE MARKET SENTIMENT ANALYSIS**
+
+Analyze current market sentiment with beautiful, detailed formatting.
+
+🌐 **LATEST WEB INSIGHTS:**
+{web_insights.content if hasattr(web_insights, 'content') else web_insights}
+
+📊 **MARKET DATA TO ANALYZE:**
+- Major indices: SPY, QQQ, DIA, VIX
+- Key individual stocks: AAPL, MSFT, GOOGL, TSLA, NVDA
+- Sector performance (Tech, Finance, Healthcare, Energy)
+- Recent economic indicators and news sentiment
+
+🎨 **FORMATTING REQUIREMENTS:**
+- Use market emojis (📈 📉 🐂 🐻 ⚡ 🔥 ❄️ 🌊)
+- Create beautiful comparison tables
+- Use **bold** for key metrics and trends
+- Color indicators: 🟢 for bullish, 🔴 for bearish, 🟡 for neutral
+- Add horizontal rules between sections
+- Format percentages and dollar amounts clearly
+- Include web sources with 🔗 when referencing external information
+
+🎯 **ANALYSIS STRUCTURE:**
+1. **Market Overview** - Current state and trends
+2. **Index Performance** - SPY, QQQ, DIA comparison
+3. **Sector Analysis** - Winners and losers
+4. **Individual Stock Highlights** - Key movers
+5. **Sentiment Indicators** - VIX, news sentiment
+6. **Economic Factors** - Interest rates, inflation, etc.
+7. **Market Outlook** - Bullish/bearish forecast
+8. **Web Insights Summary** - Key findings from latest research
+
+> **Goal:** Provide clear, actionable market insights with stunning visual presentation and latest web intelligence!
             """
         )
         print(response.content)
@@ -1064,7 +1216,7 @@ def handle_input(user_input):
         return "demo", None
     
     # Check if it's a menu number
-    if user_input in ["1", "2", "3", "4", "5"]:
+    if user_input in ["1", "2", "3", "4", "5", "6"]:
         return "menu", user_input
     
     # Check for exit commands
@@ -1083,9 +1235,29 @@ def process_menu_choice(choice):
     elif choice == "3":
         return market_sentiment_analysis()
     elif choice == "4":
+        # Web search for stock info
+        if HAS_RICH:
+            search_query = Prompt.ask(
+                "[green]Enter your search query (e.g., 'latest news on AAPL', 'Tesla earnings')[/green]"
+            )
+        else:
+            search_query = input("Enter your search query (e.g., 'latest news on AAPL', 'Tesla earnings'): ").strip()
+        
+        if search_query:
+            # Parse the search query to extract stocks if any
+            parsed_command = parse_natural_language(search_query)
+            parsed_command['command'] = 'search'  # Force search command
+            return execute_natural_command(parsed_command, search_query)
+        else:
+            if HAS_RICH:
+                console.print("[red]No search query provided.[/red]")
+            else:
+                print("No search query provided.")
+            return None
+    elif choice == "5":
         show_chat_context()
         return None
-    elif choice == "5":
+    elif choice == "6":
         if HAS_RICH:
             console.print("[bold green]👋 Thanks for using the Stock Analysis Tool![/bold green]")
         else:
@@ -1105,22 +1277,26 @@ def show_menu():
         console.print("[1] Analyze Custom Stocks")
         console.print("[2] Compare Stocks") 
         console.print("[3] Market Sentiment Analysis")
-        console.print("[4] Show Session Info")
-        console.print("[5] Exit")
+        console.print("[4] Web Search for Stock Info")
+        console.print("[5] Show Session Info")
+        console.print("[6] Exit")
         console.print("\n[dim]💡 After any analysis, just keep typing to chat about the results or request new analysis![/dim]")
+        console.print("\n[bold yellow]🌐 Enhanced with Web Search:[/bold yellow] [dim]All analyses now include latest web insights with sources![/dim]")
     else:
         print("\n📈 Stock Analysis Menu")
         print("1. Analyze Custom Stocks")
         print("2. Compare Stocks")
         print("3. Market Sentiment Analysis")
-        print("4. Show Session Info") 
-        print("5. Exit")
+        print("4. Web Search for Stock Info") 
+        print("5. Show Session Info")
+        print("6. Exit")
         print("\n💡 After any analysis, just keep typing to chat about the results or request new analysis!")
+        print("\n🌐 Enhanced with Web Search: All analyses now include latest web insights with sources!")
 
 def show_natural_language_examples():
     """Show examples of natural language commands"""
     if HAS_RICH:
-        console.print("\n[bold yellow]💡 You can type a number (1-5) or use natural language:[/bold yellow]")
+        console.print("\n[bold yellow]💡 You can type a number (1-6) or use natural language:[/bold yellow]")
         
         examples = [
             ("📊 Analysis", [
@@ -1140,6 +1316,13 @@ def show_natural_language_examples():
                 "market sentiment analysis",
                 "overall market outlook"
             ]),
+            ("🔍 Web Search", [
+                "what's zuckerberg doing with ai recently?",
+                "search for tesla's latest innovations",
+                "recent ai developments at microsoft",
+                "find information about nvidia's partnerships",
+                "what's happening with openai lately?"
+            ]),
             ("💬 Chat", [
                 "tell me more about the apple analysis",
                 "what do you think about tesla's recent performance?",
@@ -1155,7 +1338,7 @@ def show_natural_language_examples():
             for cmd in cmds:
                 console.print(f"  • [green]'{cmd}'[/green]")
     else:
-        print("\n💡 You can type a number (1-5) or use natural language:")
+        print("\n💡 You can type a number (1-6) or use natural language:")
         print("\n📊 Analysis:")
         print("  • 'analyze apple stock'")
         print("  • 'how is tesla doing over the past year?'")
@@ -1170,6 +1353,12 @@ def show_natural_language_examples():
         print("  • 'how is the market doing?'")
         print("  • 'market sentiment analysis'")
         print("  • 'overall market outlook'")
+        print("\n🔍 Web Search:")
+        print("  • 'what's zuckerberg doing with ai recently?'")
+        print("  • 'search for tesla's latest innovations'")
+        print("  • 'recent ai developments at microsoft'")
+        print("  • 'find information about nvidia's partnerships'")
+        print("  • 'what's happening with openai lately?'")
         print("\n💬 Chat:")
         print("  • 'tell me more about the apple analysis'")
         print("  • 'what do you think about tesla's recent performance?'")
@@ -1182,10 +1371,12 @@ def main_interactive():
     """Main interactive function with hybrid menu/natural language system"""
     if HAS_RICH:
         console.print("[bold green]🚀 Welcome to the Enhanced Stock Analysis Tool![/bold green]")
-        console.print("[bold cyan]✨ Now with Historical Performance & Chat Memory![/bold cyan]")
+        console.print("[bold cyan]✨ Now with Web Search, Historical Performance & Chat Memory![/bold cyan]")
+        console.print("[bold blue]🌐 Powered by Groq's compound-beta model for real-time web insights![/bold blue]")
         
         # Show available features
         features = []
+        features.append("🔍 Real-time Web Search with Sources")
         features.append("🗣️  Natural Language + Menu Numbers")
         features.append("📈 Historical Performance (1d/5d/1m/6m/ytd/1y/5y/max)")
         features.append("💬 Persistent Chat Context")
@@ -1205,12 +1396,14 @@ def main_interactive():
         
         # Show markdown rendering info
         console.print(f"[dim]📝 Markdown rendering: {'Rich (tables supported)' if HAS_RICH else 'Basic text'}[/dim]")
+        console.print(f"[dim]🔗 Web search: Latest news, analyst reports, and market insights with sources[/dim]")
         
         # Show natural language examples
         show_natural_language_examples()
     else:
         print("🚀 Welcome to the Enhanced Stock Analysis Tool!")
-        print("✨ Now with Historical Performance & Chat Memory!")
+        print("✨ Now with Web Search, Historical Performance & Chat Memory!")
+        print("🌐 Powered by Groq's compound-beta model for real-time web insights!")
         print("For better experience with beautiful markdown tables, install:")
         print("  pip install rich mdv")
         print("  or: pip install rich plotext matplotlib mdv")
@@ -1348,7 +1541,7 @@ def create_stock_price_chart(stock_data, stock_symbol, chart_type="terminal"):
         create_ascii_chart(stock_data, stock_symbol)
 
 def create_terminal_chart(stock_data, stock_symbol):
-    """Create beautiful terminal-based line chart using plotext"""
+    """Create beautiful terminal-based line chart using plotext with dark theme"""
     try:
         import plotext as plt
         
@@ -1370,9 +1563,12 @@ def create_terminal_chart(stock_data, stock_symbol):
         plt.clear_data()
         plt.clear_figure()
         
+        # Set dark theme
+        plt.theme("dark")
+        
         # Create the line plot with numeric x-axis
         x_values = list(range(1, len(prices) + 1))
-        plt.plot(x_values, prices, marker="braille", color="cyan")
+        plt.plot(x_values, prices, marker="braille", color="white")
         
         # Customize the plot
         plt.title(f"📈 {stock_symbol} Stock Price Chart (Last {len(prices)} Days)")
@@ -1397,7 +1593,7 @@ def create_terminal_chart(stock_data, stock_symbol):
             print(f"❌ Error creating terminal chart: {e}")
 
 def create_matplotlib_chart(stock_data, stock_symbol):
-    """Create advanced chart using matplotlib and save as image"""
+    """Create advanced chart using matplotlib with dark color scheme"""
     try:
         import matplotlib.pyplot as plt
         import matplotlib.dates as mdates
@@ -1427,41 +1623,46 @@ def create_matplotlib_chart(stock_data, stock_symbol):
         if len(dates) < 2:
             return
         
-        # Create the plot
+        # Create the plot with dark theme
         fig, ax = plt.subplots(figsize=(12, 6))
         
-        # Plot the line chart
-        ax.plot(dates, prices, linewidth=2, color='#00D4AA', marker='o', markersize=4)
+        # Set dark background
+        fig.patch.set_facecolor('#1a1a1a')  # Dark background
+        ax.set_facecolor('#2d2d2d')  # Darker plot area
         
-        # Customize the chart (no emojis to avoid font warnings)
-        ax.set_title(f'{stock_symbol} Stock Price Chart', fontsize=16, fontweight='bold', pad=20)
-        ax.set_xlabel('Date', fontsize=12)
-        ax.set_ylabel('Price (USD)', fontsize=12)
+        # Plot the line chart with bright, visible colors
+        ax.plot(dates, prices, linewidth=3, color='#00ff88', marker='o', markersize=5, 
+                markerfacecolor='#ffff00', markeredgecolor='#ffffff', markeredgewidth=1)
         
-        # Format x-axis dates
+        # Customize the chart with light colors for dark background
+        ax.set_title(f'{stock_symbol} Stock Price Chart', fontsize=16, fontweight='bold', 
+                    pad=20, color='#ffffff')
+        ax.set_xlabel('Date', fontsize=12, color='#ffffff')
+        ax.set_ylabel('Price (USD)', fontsize=12, color='#ffffff')
+        
+        # Format x-axis dates with light colors
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
         ax.xaxis.set_major_locator(mdates.MonthLocator())
-        plt.xticks(rotation=45)
+        plt.xticks(rotation=45, color='#ffffff')
+        plt.yticks(color='#ffffff')
         
-        # Add grid
-        ax.grid(True, alpha=0.3)
+        # Add grid with visible dark theme colors
+        ax.grid(True, alpha=0.6, color='#555555', linestyle='-', linewidth=0.5)
         
-        # Style the chart
+        # Style the chart spines with bright colors
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
-        ax.spines['left'].set_color('#CCCCCC')
-        ax.spines['bottom'].set_color('#CCCCCC')
-        
-        # Add some styling
-        fig.patch.set_facecolor('white')
-        ax.set_facecolor('#FAFAFA')
+        ax.spines['left'].set_color('#ffffff')
+        ax.spines['bottom'].set_color('#ffffff')
+        ax.spines['left'].set_linewidth(2)
+        ax.spines['bottom'].set_linewidth(2)
         
         # Tight layout
         plt.tight_layout()
         
         # Don't save charts automatically (keep folder clean)
         # filename = f"{stock_symbol}_chart_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-        # plt.savefig(filename, dpi=300, bbox_inches='tight')
+        # plt.savefig(filename, dpi=300, bbox_inches='tight', facecolor='#1a1a1a')
         
         # Don't show plot to avoid popup windows
         
@@ -1542,14 +1743,18 @@ def create_comparison_chart(stocks_data, chart_type="terminal"):
                     print(f"{symbol}: ${prices[0]:.2f} → ${prices[-1]:.2f} ({((prices[-1]/prices[0]-1)*100):+.1f}%)")
 
 def create_terminal_comparison_chart(stocks_data):
-    """Create terminal comparison chart for multiple stocks"""
+    """Create terminal comparison chart for multiple stocks with dark theme"""
     try:
         import plotext as plt
         
         plt.clear_data()
         plt.clear_figure()
         
-        colors = ["cyan", "yellow", "green", "red", "blue", "magenta"]
+        # Set dark theme
+        plt.theme("dark")
+        
+        # Use bright colors that work well on dark background
+        colors = ["white", "cyan", "yellow", "green", "red", "magenta"]
         
         for i, (stock_symbol, data) in enumerate(stocks_data.items()):
             if not data:
@@ -1586,7 +1791,7 @@ def create_terminal_comparison_chart(stocks_data):
             print(f"❌ Error creating comparison chart: {e}")
 
 def create_matplotlib_comparison_chart(stocks_data):
-    """Create matplotlib comparison chart for multiple stocks"""
+    """Create matplotlib comparison chart for multiple stocks with dark theme"""
     try:
         import matplotlib.pyplot as plt
         import matplotlib.dates as mdates
@@ -1594,7 +1799,12 @@ def create_matplotlib_comparison_chart(stocks_data):
         
         fig, ax = plt.subplots(figsize=(14, 8))
         
-        colors = ['#00D4AA', '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7']
+        # Set dark background
+        fig.patch.set_facecolor('#1a1a1a')  # Dark background
+        ax.set_facecolor('#2d2d2d')  # Darker plot area
+        
+        # Use bright, contrasting colors for dark background
+        colors = ['#00ff88', '#ff4444', '#44aaff', '#ffaa00', '#ff00ff', '#00ffff']
         
         for i, (stock_symbol, data) in enumerate(stocks_data.items()):
             if not data:
@@ -1621,38 +1831,43 @@ def create_matplotlib_comparison_chart(stocks_data):
             
             if len(dates) >= 2:
                 color = colors[i % len(colors)]
-                ax.plot(dates, prices, linewidth=2.5, color=color, marker='o', 
-                       markersize=3, label=stock_symbol, alpha=0.8)
+                ax.plot(dates, prices, linewidth=3, color=color, marker='o', 
+                       markersize=4, label=stock_symbol, alpha=0.9,
+                       markeredgecolor='#ffffff', markeredgewidth=1)
         
-        # Customize the chart (no emojis to avoid font warnings)
-        ax.set_title('Stock Price Comparison Chart', fontsize=18, fontweight='bold', pad=25)
-        ax.set_xlabel('Date', fontsize=14)
-        ax.set_ylabel('Price (USD)', fontsize=14)
+        # Customize the chart with light colors for dark background
+        ax.set_title('Stock Price Comparison Chart', fontsize=18, fontweight='bold', 
+                    pad=25, color='#ffffff')
+        ax.set_xlabel('Date', fontsize=14, color='#ffffff')
+        ax.set_ylabel('Price (USD)', fontsize=14, color='#ffffff')
         
-        # Format x-axis dates
+        # Format x-axis dates with light colors
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d'))
         ax.xaxis.set_major_locator(mdates.WeekdayLocator())
-        plt.xticks(rotation=45)
+        plt.xticks(rotation=45, color='#ffffff')
+        plt.yticks(color='#ffffff')
         
-        # Add grid and legend
-        ax.grid(True, alpha=0.3)
-        ax.legend(loc='upper left', frameon=True, fancybox=True, shadow=True)
+        # Add grid and legend with dark theme styling
+        ax.grid(True, alpha=0.6, color='#555555', linestyle='-', linewidth=0.5)
+        legend = ax.legend(loc='upper left', frameon=True, fancybox=True, shadow=True)
+        legend.get_frame().set_facecolor('#333333')
+        legend.get_frame().set_edgecolor('#ffffff')
+        for text in legend.get_texts():
+            text.set_color('#ffffff')
         
-        # Style the chart
+        # Style the chart spines with bright colors
         ax.spines['top'].set_visible(False)
         ax.spines['right'].set_visible(False)
-        ax.spines['left'].set_color('#CCCCCC')
-        ax.spines['bottom'].set_color('#CCCCCC')
-        
-        # Styling
-        fig.patch.set_facecolor('white')
-        ax.set_facecolor('#FAFAFA')
+        ax.spines['left'].set_color('#ffffff')
+        ax.spines['bottom'].set_color('#ffffff')
+        ax.spines['left'].set_linewidth(2)
+        ax.spines['bottom'].set_linewidth(2)
         
         plt.tight_layout()
         
         # Don't save comparison charts automatically (keep folder clean)
         # filename = f"comparison_chart_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-        # plt.savefig(filename, dpi=300, bbox_inches='tight')
+        # plt.savefig(filename, dpi=300, bbox_inches='tight', facecolor='#1a1a1a')
         
         # Don't show plot to avoid popup windows
         
@@ -1697,6 +1912,75 @@ def demo_charts():
         console.print("[dim]  • Error messages when data unavailable (no fake data)[/dim]")
     else:
         print("\n✅ Chart demo completed!")
+
+def handle_search_request(user_input, stocks):
+    """Handle web search requests for any information"""
+    if HAS_RICH:
+        console.print(f"\n[bold blue]🔍 Web Search Request[/bold blue]")
+        if stocks:
+            console.print(f"[yellow]Related to: {', '.join(stocks)}[/yellow]")
+    else:
+        print("\n🔍 Web Search Request")
+        if stocks:
+            print(f"Related to: {', '.join(stocks)}")
+    
+    # Simple, direct search query to get raw compound-beta results
+    search_query = user_input
+    
+    if HAS_RICH:
+        with console.status("[bold blue]🌐 Searching with compound-beta model...") as status:
+            response = web_agent.run(search_query)
+        
+        # Show raw compound-beta output with minimal processing
+        console.print(f"\n[bold green]📡 Raw Compound-Beta Output:[/bold green]")
+        console.print("[dim]Direct output from Groq's compound-beta web search model[/dim]")
+        console.print("-" * 80)
+        
+        render_markdown_with_alternatives(
+            response.content,
+            title="🔍 Compound-Beta Search Results",
+            border_style="blue"
+        )
+    else:
+        print("🌐 Searching with compound-beta model...")
+        response = web_agent.run(search_query)
+        
+        print(f"\n📡 Raw Compound-Beta Output:")
+        print("Direct output from Groq's compound-beta web search model")
+        print("-" * 80)
+        print(response.content)
+    
+    return response.content
+
+def get_web_enhanced_analysis(stock, company_name, sector):
+    """Get web search results to enhance stock analysis"""
+    search_query = f"""Search for recent information about {company_name} ({stock}):
+    
+    Please find relevant recent developments, focusing on:
+    - Recent company news and announcements
+    - Strategic initiatives and business developments  
+    - Technology innovations or product launches
+    - Industry trends affecting the {sector} sector
+    - Partnership announcements or acquisitions
+    - Regulatory developments if relevant
+    
+    Provide factual, recent information with sources. Focus on business developments rather than just financial metrics."""
+    
+    try:
+        if HAS_RICH:
+            with console.status(f"[bold blue]🌐 Gathering insights for {stock}...") as status:
+                web_response = web_agent.run(search_query)
+        else:
+            print(f"🌐 Gathering insights for {stock}...")
+            web_response = web_agent.run(search_query)
+        
+        return web_response.content
+    except Exception as e:
+        if HAS_RICH:
+            console.print(f"[yellow]⚠️  Web search unavailable for {stock}: {str(e)[:50]}...[/yellow]")
+        else:
+            print(f"⚠️  Web search unavailable for {stock}: {str(e)[:50]}...")
+        return None
 
 if __name__ == "__main__":
     # Check if running interactively
